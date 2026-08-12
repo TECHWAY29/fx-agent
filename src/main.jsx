@@ -1,23 +1,28 @@
 import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Link, Route, Routes, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ArrowRight, ArrowUpRight, Check, ChevronDown, Copy, CreditCard,
+  ArrowRight, ArrowUpRight, Check, ChevronDown, CreditCard,
   FileCheck2, Headphones, Menu, RefreshCw, ShieldCheck, Sparkles,
-  Wallet, X, Zap, LockKeyhole, Clock3, CircleDollarSign
+  Wallet, X, Zap, LockKeyhole, Clock3, CircleDollarSign, UserRound
 } from "lucide-react";
 import "./styles.css";
-
-const RATE = 1420;
-const BUY_RATE = 1400;
-
-function money(n) {
-  return new Intl.NumberFormat("en-NG", { maximumFractionDigits: 0 }).format(n || 0);
-}
+import { AuthProvider, useAuth } from "./auth.jsx";
+import { RATE, BUY_RATE, money } from "./constants.js";
+import Account from "./account.jsx";
 
 function Header() {
   const [open, setOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    logout();
+    setOpen(false);
+    navigate("/");
+  }
+
   return (
     <header className="nav-wrap">
       <nav className="nav container">
@@ -29,8 +34,20 @@ function Header() {
           <a href="#how">How it works</a>
           <a href="#rates">Rates</a>
           <a href="#why">Why VaultX</a>
-          <Link to="/track">Track order</Link>
-          <Link className="nav-cta" to="/exchange">Start exchange <ArrowUpRight size={16}/></Link>
+          <Link to="/account?track=1" onClick={() => setOpen(false)}>Track order</Link>
+          {user ? (
+            <>
+              <Link to="/account" className="nav-user" onClick={() => setOpen(false)}>
+                <UserRound size={15}/> {user.name?.split(" ")[0] || user.email}
+              </Link>
+              <button className="nav-cta" onClick={handleLogout}>Log out</button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" onClick={() => setOpen(false)}>Log in</Link>
+              <Link className="nav-cta" to="/signup" onClick={() => setOpen(false)}>Sign up <ArrowUpRight size={16}/></Link>
+            </>
+          )}
         </div>
         <button className="menu-btn" onClick={() => setOpen(!open)} aria-label="Menu">
           {open ? <X/> : <Menu/>}
@@ -88,7 +105,7 @@ function ExchangeCard({ compact=false }) {
         <span>You {mode === "sell" ? "receive" : "pay"}</span>
         <strong>₦{money(naira)}</strong>
       </div>
-      <Link className="primary-btn full" to={`/exchange?mode=${mode}&amount=${amount}`}>
+      <Link className="primary-btn full" to={`/account?tab=exchange&mode=${mode}&amount=${amount}`}>
         Continue exchange <ArrowRight size={18}/>
       </Link>
       <p className="fine-print"><LockKeyhole size={13}/> Quote is indicative. Final rate is confirmed at order creation.</p>
@@ -108,7 +125,7 @@ function Home() {
             <h1>Move value.<br/><em>Without the friction.</em></h1>
             <p className="hero-text">Buy and sell USDT with a simple, human-verified process built for speed, clarity and peace of mind.</p>
             <div className="hero-actions">
-              <Link className="primary-btn" to="/exchange">Start an exchange <ArrowRight size={18}/></Link>
+              <Link className="primary-btn" to="/account?tab=exchange">Start an exchange <ArrowRight size={18}/></Link>
               <a className="ghost-btn" href="#how">See how it works <ChevronDown size={17}/></a>
             </div>
             <div className="trust-line">
@@ -157,7 +174,7 @@ function Home() {
 
         <section id="why" className="dark-section">
           <div className="container why-grid">
-            <div><span className="eyebrow">WHY VAULTX</span><h2>Built around<br/><em>your confidence.</em></h2><p>We don't hide the important parts. You see your rate, payment instructions and transaction status at every stage.</p><Link className="outline-btn" to="/track">Track an order <ArrowRight size={17}/></Link></div>
+            <div><span className="eyebrow">WHY VAULTX</span><h2>Built around<br/><em>your confidence.</em></h2><p>We don't hide the important parts. You see your rate, payment instructions and transaction status at every stage.</p><Link className="outline-btn" to="/account?track=1">Track an order <ArrowRight size={17}/></Link></div>
             <div className="feature-stack">
               <div className="feature"><ShieldCheck/><div><h3>Human-verified payments</h3><p>Every receipt is checked against the business bank alert before an order advances.</p></div></div>
               <div className="feature"><Clock3/><div><h3>Clear transaction status</h3><p>Know whether your order is pending, payment confirmed or completed.</p></div></div>
@@ -167,7 +184,7 @@ function Home() {
         </section>
 
         <section className="cta-section container">
-          <div className="cta-box"><div><span className="eyebrow">READY WHEN YOU ARE</span><h2>Let's make your next exchange simple.</h2><p>Get a quote and create your order in minutes.</p></div><Link className="primary-btn light" to="/exchange">Start exchange <ArrowRight size={18}/></Link></div>
+          <div className="cta-box"><div><span className="eyebrow">READY WHEN YOU ARE</span><h2>Let's make your next exchange simple.</h2><p>Get a quote and create your order in minutes.</p></div><Link className="primary-btn light" to="/account?tab=exchange">Start exchange <ArrowRight size={18}/></Link></div>
         </section>
       </main>
       <Footer/>
@@ -175,77 +192,149 @@ function Home() {
   );
 }
 
-function Exchange() {
-  const [step,setStep] = useState(1);
-  const [mode,setMode] = useState("sell");
-  const [amount,setAmount] = useState("1000");
-  const [form,setForm] = useState({phone:"",wallet:""});
-  const rate = mode === "sell" ? RATE : BUY_RATE;
-  const naira = Number(amount||0)*rate;
-  const [ref] = useState(() => `FX-${new Date().getFullYear()}-${Math.floor(100000 + Math.random()*899999)}`);
-
-  return <><Header/><main className="exchange-page container">
-    <div className="flow-heading"><div><span className="eyebrow">EXCHANGE DESK</span><h1>{step === 4 ? "Order created." : "Create your exchange."}</h1><p>{step === 4 ? "Keep your reference safe to track payment and settlement." : "A clear, guided process from quote to order."}</p></div><Link className="ghost-btn" to="/">← Back home</Link></div>
-    <div className="progress"><div className="progress-line"><span style={{width:`${((step-1)/3)*100}%`}}></span></div>{["Exchange","Your details","Confirm","Done"].map((x,i)=><div className={step>=i+1?"p-step active":"p-step"} key={x}><span>{i+1}</span>{x}</div>)}</div>
-    <AnimatePresence mode="wait">
-      {step===1 && <motion.div className="flow-card" key="one" initial={{opacity:0,x:20}} animate={{opacity:1,x:0}} exit={{opacity:0,x:-20}}>
-        <h2>What would you like to do?</h2><p className="muted">Choose your direction and enter the amount.</p>
-        <div className="big-toggle"><button className={mode==="sell"?"active":""} onClick={()=>setMode("sell")}><span>Sell USDT</span><small>Receive Naira</small></button><button className={mode==="buy"?"active":""} onClick={()=>setMode("buy")}><span>Buy USDT</span><small>Pay Naira</small></button></div>
-        <label className="field-label">USDT amount</label><div className="amount-box large"><input autoFocus value={amount} onChange={e=>setAmount(e.target.value.replace(/[^0-9.]/g,""))}/><span className="token"><span className="token-icon">₮</span> USDT</span></div>
-        <div className="quote-summary"><span>Rate</span><b>₦{money(rate)} / USDT</b><span>You {mode==="sell"?"receive":"pay"}</span><b>₦{money(naira)}</b></div>
-        <button className="primary-btn full" onClick={()=>setStep(2)}>Continue <ArrowRight size={18}/></button>
-      </motion.div>}
-      {step===2 && <motion.div className="flow-card" key="two" initial={{opacity:0,x:20}} animate={{opacity:1,x:0}} exit={{opacity:0,x:-20}}>
-        <h2>Your transaction details</h2><p className="muted">We'll use these to identify your order and send the USDT when applicable.</p>
-        <label className="field-label">Phone number</label><input className="text-input" placeholder="0800 000 0000" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/>
-        <label className="field-label">USDT wallet address</label><input className="text-input" placeholder="Enter your wallet address" value={form.wallet} onChange={e=>setForm({...form,wallet:e.target.value})}/>
-        <div className="info-box"><ShieldCheck size={18}/><span>Double-check your wallet address. The exchange desk will use the details submitted with this order.</span></div>
-        <div className="button-row"><button className="ghost-btn" onClick={()=>setStep(1)}>Back</button><button className="primary-btn" onClick={()=>setStep(3)}>Review order <ArrowRight size={18}/></button></div>
-      </motion.div>}
-      {step===3 && <motion.div className="flow-card" key="three" initial={{opacity:0,x:20}} animate={{opacity:1,x:0}} exit={{opacity:0,x:-20}}>
-        <h2>Review your order</h2><p className="muted">Make sure everything is correct before creating the order.</p>
-        <div className="review"><div><span>Direction</span><b>{mode==="sell"?"Sell USDT":"Buy USDT"}</b></div><div><span>USDT amount</span><b>{money(Number(amount))} USDT</b></div><div><span>Exchange rate</span><b>₦{money(rate)}</b></div><div className="total"><span>Naira amount</span><b>₦{money(naira)}</b></div><div><span>Phone</span><b>{form.phone || "—"}</b></div><div><span>Wallet</span><b className="wallet-review">{form.wallet || "—"}</b></div></div>
-        <div className="button-row"><button className="ghost-btn" onClick={()=>setStep(2)}>Back</button><button className="primary-btn" onClick={()=>setStep(4)}>Create order <ArrowRight size={18}/></button></div>
-      </motion.div>}
-      {step===4 && <motion.div className="flow-card success-card" key="four" initial={{opacity:0,y:15}} animate={{opacity:1,y:0}}>
-        <div className="success-icon"><Check size={34}/></div><span className="eyebrow">ORDER CREATED</span><h2>Your order is ready.</h2><p className="muted">Use the reference below whenever you contact the exchange desk or check your status.</p>
-        <div className="order-ref"><span>Order reference</span><strong>{ref}</strong><button onClick={()=>navigator.clipboard?.writeText(ref)}><Copy size={16}/> Copy</button></div>
-        <div className="payment-box"><div><span>Amount to {mode==="sell"?"receive":"pay"}</span><strong>₦{money(naira)}</strong></div><div><span>USDT</span><strong>{money(Number(amount))}</strong></div><div><span>Status</span><strong className="status-pending">Pending</strong></div></div>
-        <div className="info-box"><CreditCard size={18}/><span>For this MVP, payment instructions and bank details are displayed by the exchange desk after order creation. Upload your receipt against this reference.</span></div>
-        <div className="button-row"><Link className="ghost-btn" to="/track">Track order</Link><Link className="primary-btn" to="/">Done <Check size={17}/></Link></div>
-      </motion.div>}
-    </AnimatePresence>
-  </main><Footer/></>;
+function AuthLayout({ eyebrow, title, subtitle, children, footer }) {
+  return (
+    <main className="auth-page container">
+      <motion.div className="auth-card" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4 }}>
+        <span className="eyebrow">{eyebrow}</span>
+        <h1>{title}</h1>
+        <p className="muted">{subtitle}</p>
+        {children}
+        {footer}
+      </motion.div>
+    </main>
+  );
 }
 
-function Track() {
-  const {ref: urlRef} = useParams();
-  const [ref,setRef] = useState(urlRef || "");
-  const [searched,setSearched] = useState(!!urlRef);
-  return <><Header/><main className="track-page container">
-    <div className="center-head"><span className="eyebrow">ORDER TRACKING</span><h1>Where is your order?</h1><p>Enter your unique order reference to view the latest status.</p></div>
-    <div className="track-card">
-      <label className="field-label">Order reference</label><div className="search-input"><input placeholder="e.g. FX-2026-482193" value={ref} onChange={e=>setRef(e.target.value)}/><button onClick={()=>setSearched(true)}>Track <ArrowRight size={17}/></button></div>
-      {searched && <motion.div className="tracking-result" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}}>
-        <div className="tracking-top"><div><span className="eyebrow">ORDER</span><h3>{ref || "FX-2026-482193"}</h3></div><span className="status-chip">Pending confirmation</span></div>
-        <div className="tracking-amount"><span>Transaction amount</span><strong>₦14,200,000</strong><small>10,000 USDT · Sell</small></div>
-        <div className="timeline">{[
-          ["Order submitted","Your order was created successfully.",true],
-          ["Payment confirmation","We're waiting for payment to be verified.",true],
-          ["Crypto release","This step begins after payment confirmation.",false],
-          ["Completed","Transaction is complete.",false]
-        ].map(([t,d,done],i)=><div className={`timeline-item ${done?"done":""}`} key={t}><div className="timeline-dot">{done?<Check size={13}/>:i+1}</div><div><b>{t}</b><p>{d}</p></div></div>)}</div>
-      </motion.div>}
-    </div>
-  </main><Footer/></>;
+function Login() {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      login(form);
+      navigate("/");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <Header/>
+      <AuthLayout
+        eyebrow="WELCOME BACK"
+        title="Log in to VaultX"
+        subtitle="Access your exchange desk and track your orders."
+        footer={<p className="auth-switch">New here? <Link to="/signup">Create an account</Link></p>}
+      >
+        <form onSubmit={handleSubmit} noValidate>
+          <label className="field-label">Email</label>
+          <input className="text-input" type="email" required autoComplete="email"
+            value={form.email} onChange={e => setForm({ ...form, email: e.target.value })}
+            placeholder="you@example.com"/>
+          <label className="field-label">Password</label>
+          <input className="text-input" type="password" required autoComplete="current-password"
+            value={form.password} onChange={e => setForm({ ...form, password: e.target.value })}
+            placeholder="••••••••"/>
+          {error && <div className="auth-error">{error}</div>}
+          <button className="primary-btn full auth-submit" type="submit" disabled={loading}>
+            {loading ? "Logging in…" : <>Log in <ArrowRight size={18}/></>}
+          </button>
+        </form>
+      </AuthLayout>
+      <Footer/>
+    </>
+  );
+}
+
+function Signup() {
+  const { signup } = useAuth();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "" });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (form.password.length < 6) return setError("Password must be at least 6 characters.");
+    if (form.password !== form.confirm) return setError("Passwords do not match.");
+    setLoading(true);
+    try {
+      signup(form);
+      navigate("/");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <Header/>
+      <AuthLayout
+        eyebrow="GET STARTED"
+        title="Create your account"
+        subtitle="Sign up to start exchanging USDT with VaultX."
+        footer={<p className="auth-switch">Already have an account? <Link to="/login">Log in</Link></p>}
+      >
+        <form onSubmit={handleSubmit} noValidate>
+          <label className="field-label">Full name</label>
+          <input className="text-input" required autoComplete="name"
+            value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
+            placeholder="Jane Doe"/>
+          <label className="field-label">Email</label>
+          <input className="text-input" type="email" required autoComplete="email"
+            value={form.email} onChange={e => setForm({ ...form, email: e.target.value })}
+            placeholder="you@example.com"/>
+          <label className="field-label">Password</label>
+          <input className="text-input" type="password" required autoComplete="new-password"
+            value={form.password} onChange={e => setForm({ ...form, password: e.target.value })}
+            placeholder="At least 6 characters"/>
+          <label className="field-label">Confirm password</label>
+          <input className="text-input" type="password" required autoComplete="new-password"
+            value={form.confirm} onChange={e => setForm({ ...form, confirm: e.target.value })}
+            placeholder="••••••••"/>
+          {error && <div className="auth-error">{error}</div>}
+          <div className="info-box">
+            <ShieldCheck size={18}/>
+            <span>Demo signup for this MVP frontend — accounts are stored in your browser only, not on a server.</span>
+          </div>
+          <button className="primary-btn full auth-submit" type="submit" disabled={loading}>
+            {loading ? "Creating account…" : <>Create account <ArrowRight size={18}/></>}
+          </button>
+        </form>
+      </AuthLayout>
+      <Footer/>
+    </>
+  );
 }
 
 function Footer() {
-  return <footer><div className="container footer-inner"><div className="brand"><span className="brand-mark"><Sparkles size={17}/></span>vault<span className="brand-x">x</span></div><p>Modern OTC exchange, built around clarity.</p><div className="footer-links"><a href="#how">How it works</a><Link to="/track">Track order</Link><Link to="/exchange">Exchange</Link></div><span className="copyright">© 2026 VaultX</span></div></footer>;
+  return <footer><div className="container footer-inner"><div className="brand"><span className="brand-mark"><Sparkles size={17}/></span>vault<span className="brand-x">x</span></div><p>Modern OTC exchange, built around clarity.</p><div className="footer-links"><a href="#how">How it works</a><Link to="/account?track=1">Track order</Link><Link to="/account?tab=exchange">Exchange</Link></div><span className="copyright">© 2026 VaultX</span></div></footer>;
 }
 
 function App() {
-  return <Routes><Route path="/" element={<Home/>}/><Route path="/exchange" element={<Exchange/>}/><Route path="/track" element={<Track/>}/><Route path="/track/:ref" element={<Track/>}/></Routes>;
+  return (
+    <AuthProvider>
+      <Routes>
+        <Route path="/" element={<Home/>}/>
+        <Route path="/login" element={<Login/>}/>
+        <Route path="/signup" element={<Signup/>}/>
+        <Route path="/account" element={<Account/>}/>
+      </Routes>
+    </AuthProvider>
+  );
 }
 
 createRoot(document.getElementById("root")).render(<BrowserRouter><App/></BrowserRouter>);
